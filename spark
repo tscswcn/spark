@@ -1,0 +1,2191 @@
+Spark 课堂笔记
+
+Spark 生态圈：
+*****	Spark Core ： 最重要的 Spark 组件，其中最重要的是 RDD （弹性分布式数据集）
+****	Spark SQL
+****	Spark Streaming
+**	 MLLib：Spark 机器学习工具包。协同过滤，ALS，逻辑回归，余弦相似性  --> 推荐系统
+*	Spark GraphX：图计算
+
+重点 前三章。
+
+----------Spark Core--------------
+一、什么是 Spark？ 特点？
+	Apache Spark™ is a unified analytics engine for large-scale data processing.
+						统一的
+	
+	类似于 MapReduce，作用：处理大规模数据集。
+	
+	特点：
+	快、易用、通用性、兼容性
+	
+二、安装和部署Spark、Spark 的 HA
+	
+	1、spark的体系架构：主从架构
+	
+		客户端：Driver Program
+			
+		启动方式:
+		1、Spark-submit：用于提交Spark的任务。任务就是一个jar。
+			本质：启动一个客户端
+			
+		2、spark-shell ： REPL
+	
+	2、安装和配置spark
+		
+		注意：Hadoop 和 Spark 的命令脚本是有冲突。配置Hadoop的环境变量后，不要配置spark的环境变量。
+		
+		（1）准备工作：安装JDK、配置主机名、免密登陆
+		
+		（2）伪分布模式
+				
+				Master 和 Worker 在同一个节点上。
+				
+				修改spark-env.sh
+				export JAVA_HOME=/usr/java/jdk1.8.0_201
+				export SPARK_MASTER_HOST=node3
+				export SPARK_MASTER_PORT=7077
+				
+				修改slaves文件
+	
+		（3）全分布模式
+				
+				在多台服务器上启动spark
+				spark-env.sh 与上面相同
+				slaves 修改为：
+				node4
+				node5
+				
+				启动后 主节点 node3 从节点 node4 node5
+				
+				
+	3、spark 的 HA 有两种方式：
+	
+		（1）基于文件目录的单点恢复
+			本质：还是只有一个主节点，创建一个恢复目录，保存集群状态和任务的信息。
+			当Master挂掉，重新启动Master时，从恢复目录下读取状态信息，恢复出原来的状态。
+			主要用于开发和测试。
+			
+		（2）基于Zookeeper：与hadoop类似
+			
+三、执行Spark任务：两个工具
+	
+	1、spark-submit
+		用于提交Spark任务（每个任务就是一个jar）
+		./spark-submit --master spark://node3:7077 --class org.apache.spark.examples.SparkPi /usr/local/spark-2.1.0-bin-hadoop2.7/examples/jars/spark-examples_2.11-2.1.0.jar 100
+	
+	2、spark-shell：相当于REPL 命令行工具
+		
+		作为一个独立的Application运行
+		
+		两种模式：
+			（1）本地模式：不需要连接到Spark集群上，在本地，模拟运行Spark
+				方式：执行运行 spark-shell
+				Spark context available as 'sc' (master = local[*], app id = local-1565900141749)
+				master是local 代表运行在本地模式，不提交到集群
+				
+			（2）集群模式
+				
+				./spark-shell --master spark://node3:7077
+				
+				Spark context available as 'sc' (master = spark://node3:7077, app id = app-20190816042103-0000).
+				
+				scala> sc.textFile("/usr/local/tmp_files/test_WordCount.txt")
+						.flatMap(_.split(" "))
+						.map((_,1))
+						.reduceByKey(_+_)
+						.collect
+				res0: Array[(String, Int)] = 
+				Array(
+				(is,1), (love,2), (capital,1), 
+				(Beijing,2), (China,2), 
+				(hehehehehe,1), (I,2), 
+				(of,1), (the,1)
+				)
+				
+				scala> sc.textFile("hdfs://node2:8020/tmp_files/test_WordCount.txt")
+				.flatMap(_.split(" "))
+				.map((_,1))
+				.reduceByKey(_+_)
+				.collect
+				res1: Array[(String, Int)] = Array((is,1), (love,2), (capital,1), (Beijing,2), (China,2), (I,2), (of,1), (the,1))
+			
+		
+				（*）单步运行WordCount  ---> RDD
+					
+					scala> sc.textFile("/usr/local/tmp_files/test_WordCount.txt")
+					res2: org.apache.spark.rdd.RDD[String] = /usr/local/tmp_files/test_WordCount.txt MapPartitionsRDD[11] at textFile at <console>:25
+
+					返回值 RDD 并没有真正读取文件
+					
+					scala> sc.textFile("/usr/local/tmp_files/test_WordCount.txt").collect
+					res3: Array[String] = Array(I love Beijing, I love China, Beijing is the capital of China, hehehehehe)
+		
+					真正读取文件
+					
+					scala> val rdd2 = rdd1.flatMap(_.split(" "))
+					rdd2: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[2] at flatMap at <console>:26
+
+					scala> rdd2.collect
+					res0: Array[String] = Array(I, love, Beijing, I, love, China, Beijing, is, the, capital, of, China, hehehehehe)
+					
+					scala> val rdd3 = rdd2.map((_,1))
+					rdd3: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[3] at map at <console>:28
+
+					scala> rdd3.collect
+					res1: Array[(String, Int)] = Array((I,1), (love,1), (Beijing,1), (I,1), (love,1), (China,1), (Beijing,1), (is,1), (the,1), (capital,1), (of,1), (China,1), (hehehehehe,1))
+					
+					scala> val rdd4 = rdd3.reduceByKey(_+_)
+					rdd4: org.apache.spark.rdd.RDD[(String, Int)] = ShuffledRDD[4] at reduceByKey at <console>:30
+
+					scala> rdd4.collect
+					res2: Array[(String, Int)] = Array((is,1), (love,2), (capital,1), (Beijing,2), (China,2), (hehehehehe,1), (I,2), (of,1), (the,1))
+		
+					RDD说明：
+					RDD 弹性分布式数据集
+					特性：（1）依赖关系：rdd2 依赖 rdd1
+							（2）算子
+								算子分为两种：
+								Transformation：延时计算 flatMap  map  reduceByKey
+								Action：触发计算   collect
+		
+四、spark任务调度过程
+			
+	1、客户端（Driver）通过sparkcontext对象，将请求交给master。
+	
+	2、master将人物信息和资源分配给worker
+	
+	3、worker启动executor。
+	
+	4、真正任务提交，driver给worker提交jar。不经过master。
+	
+五、RDD 和 RDD 特性、RDD算子
+
+	RDD是核心
+	
+	1、RDD：弹性分布式数据集
+		
+		（*）Spark中最基本的数据抽象，也就是 spark 中处理的数据，都是RDD。
+		
+		（*）RDD特性
+			
+			Internally, each RDD is characterized by five main properties:
+
+			A list of partitions
+			1、是一组分区
+				
+				理解：RDD是由分区组成，每个分区运行在不同的Worker上，通过这种方式来实现分布式计算。
+				
+				RDD是逻辑概念，分区是物理概念。
+			
+
+			A function for computing each split
+			2、split代表分区。
+				在RDD中，有一系列函数，用于处理计算每个分区中的数据。这里把函数叫算子。
+			
+			
+			A list of dependencies on other RDDs
+			3、RDD之间存在依赖关系。
+			
+			Optionally, a Partitioner for key-value RDDs (e.g. to say that the RDD is hash-partitioned)
+			4、可以自定义分区规则来创建RDD
+				
+				创建RDD时，可以指定分区，也可以自定义分区规则
+				类似于MapReduce的分区
+			
+			Optionally, a list of preferred locations to compute each split on (e.g. block locations for an HDFS file)
+			5、优先选择离文件位置近的节点执行。
+			
+			
+		如何创建RDD：
+			
+			（1）通过SparkContext.parallelize创建
+				val rdd1 = sc.parallelize(Array(1,2,3,4,5),3)
+				
+			（2）通过外部数据源创建
+			
+				val rdd2 = sc.textFile("/usr/local/tmp_files/testWordCount.txt")
+	
+	2、RDD算子
+		
+		（1）Transformation：延时计算 lazy 值不会触发计算。重点。
+				
+				提供了丰富的功能。
+				
+			map(func)
+			对原来的RDD进行某种操作，返回一个新RDD
+			
+			filter(func)：过滤
+			flatMap(func)：压平
+			
+			mapPartitions(func)：对RDD中的每个分区进行操作
+			mapPartitionsWithIndex(func)：对RDD中的每个分区进行操作，带有下标，可以取到分区号。
+			
+			sample(withReplacement, fraction, seed)：采样
+			
+			集合运算：
+			union(otherDataset)
+			intersection(otherDataset)
+			distinct([numTasks]))去重
+			
+			分组操作：
+			groupByKey([numTasks])	: 偏底层
+			reduceByKey(func, [numTasks]) ： 调用 groupByKey 常用
+			
+			aggregateByKey(zeroValue)(seqOp,combOp,[numTasks])
+			
+			排序：
+			sortByKey([ascending], [numTasks])
+			sortBy(func,[ascending], [numTasks])
+			
+			
+			join(otherDataset, [numTasks])
+			cogroup(otherDataset, [numTasks])
+			cartesian(otherDataset)：笛卡尔积
+			
+			pipe(command, [envVars])
+			coalesce(numPartitions)	
+			
+			重分区：
+			repartition(numPartitions)
+			repartitionAndSortWithinPartitions(partitioner)
+			
+			举例：
+			1、创建一个RDD 数字类型
+				scala> val rdd1 = sc.parallelize(List(5,6,7,8,9,1,2,3,100))
+				rdd1: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[3] at parallelize at <console>:24
+
+				scala> rdd1.partitions.length
+				res1: Int = 2
+
+				需求：每个元素乘以2 排序
+				scala> val rdd2 = rdd1.map(_*2)
+				rdd2: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[4] at map at <console>:26
+
+				scala> rdd2.collect
+				res2: Array[Int] = Array(10, 12, 14, 16, 18, 2, 4, 6, 200)                      
+
+				scala> val rdd2 = rdd1.map(_*2).sortBy(x=>x,true)
+				rdd2: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[10] at sortBy at <console>:26
+
+				scala> rdd2.collect
+				res3: Array[Int] = Array(2, 4, 6, 10, 12, 14, 16, 18, 200)                      
+
+				scala> val rdd2 = rdd1.map(_*2).sortBy(x=>x,false)
+				rdd2: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[16] at sortBy at <console>:26
+
+				scala> rdd2.collect
+				res4: Array[Int] = Array(200, 18, 16, 14, 12, 10, 6, 4, 2)
+			
+				需求：
+				过滤出大于20的元素
+				scala> val rdd3 = rdd2.filter(_>20)
+				rdd3: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[17] at filter at <console>:28
+
+				scala> rdd3.collect
+				res5: Array[Int] = Array(200)
+			
+			2、创建RDD，包含字符串（字符）
+				
+				scala> val rdd4 = sc.parallelize(Array("a b c","d e f","x y z"))
+				rdd4: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[18] at parallelize at <console>:24
+
+				scala> val rdd5 = rdd4.flatMap(_.split(" "))
+				rdd5: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[19] at flatMap at <console>:26
+
+				scala> rdd5.collect
+				res6: Array[String] = Array(a, b, c, d, e, f, x, y, z)
+				
+			3、集合运算、去重
+				
+				需要两个RDD
+				
+				scala> val rdd6 = sc.parallelize(List(5,6,7,8,1,2,3,100))
+				rdd6: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[20] at parallelize at <console>:24
+
+				scala> val rdd7 = sc.parallelize(List(1,2,3,4))
+				rdd7: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[21] at parallelize at <console>:24
+
+				scala> val rdd8 = rdd6.union(rdd7)
+				rdd8: org.apache.spark.rdd.RDD[Int] = UnionRDD[22] at union at <console>:28
+
+				scala> rdd8.collect
+				res7: Array[Int] = Array(5, 6, 7, 8, 1, 2, 3, 100, 1, 2, 3, 4)
+
+				scala> rdd8.distinct.collect
+				res8: Array[Int] = Array(100, 4, 8, 1, 5, 6, 2, 7, 3)
+
+				scala> val rdd9 = rdd6.intersection(rdd7)
+				rdd9: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[31] at intersection at <console>:28
+
+				scala> rdd9.collect
+				res9: Array[Int] = Array(2, 1, 3)
+	
+			4、分组操作：reduceByKey groupByKey
+				
+				scala> val rdd1 = sc.parallelize(List(("Tom",1000),("Jerry",3000),("Mery",2000)))
+				rdd1: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[32] at parallelize at <console>:24
+
+				scala> val rdd2 = sc.parallelize(List(("Jerry",1000),("Tom",3000),("Mike",2000)))
+				rdd2: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[33] at parallelize at <console>:24
+
+				scala> val rdd3 = rdd1 union rdd2
+				rdd3: org.apache.spark.rdd.RDD[(String, Int)] = UnionRDD[34] at union at <console>:28
+
+				scala> rdd3.collect
+				res10: Array[(String, Int)] = Array((Tom,1000), (Jerry,3000), (Mery,2000), (Jerry,1000), (Tom,3000), (Mike,2000))
+
+				scala> val rdd4 = rdd3.groupByKey
+				rdd4: org.apache.spark.rdd.RDD[(String, Iterable[Int])] = ShuffledRDD[35] at groupByKey at <console>:30
+
+				scala> rdd4.collect
+				res11: Array[(String, Iterable[Int])] = 
+				Array(
+				(Tom,CompactBuffer(1000, 3000)), 
+				(Jerry,CompactBuffer(3000, 1000)), 
+				(Mike,CompactBuffer(2000)), 
+				(Mery,CompactBuffer(2000)))
+				
+				scala> rdd3.reduceByKey(_+_).collect
+				res12: Array[(String, Int)] = Array((Tom,4000), (Jerry,4000), (Mike,2000), (Mery,2000))
+				
+			5、cogroup操作
+				
+				scala> val rdd1 = sc.parallelize(List(("Tom",1),("Tom",2),("Jerry",3),("Kitty",2)))
+				rdd1: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[37] at parallelize at <console>:24
+
+				scala> val rdd2 = sc.parallelize(List(("Jerry",2),("Tom",1),("Andy",2)))
+				rdd2: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[38] at parallelize at <console>:24
+
+				scala> val rdd3 = rdd1.cogroup(rdd2)
+				rdd3: org.apache.spark.rdd.RDD[(String, (Iterable[Int], Iterable[Int]))] = MapPartitionsRDD[40] at cogroup at <console>:28
+
+				scala> rdd3.collect
+				res13: Array[(String, (Iterable[Int], Iterable[Int]))] = 
+				Array((Tom,(CompactBuffer(1, 2),CompactBuffer(1))), 
+				(Jerry,(CompactBuffer(3),CompactBuffer(2))), 
+				(Andy,(CompactBuffer(),CompactBuffer(2))), 
+				(Kitty,(CompactBuffer(2),CompactBuffer())))
+				
+			6、reduce操作
+				
+				scala> val rdd1 = sc.parallelize(List(1,2,3,4,5))
+				rdd1: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[41] at parallelize at <console>:24
+
+				scala> val rdd2 = rdd1.reduce(_+_)
+				rdd2: Int = 15
+				
+			7、需求：按照value进行排序。
+				注意：SortByKey 按照 Key 排序
+				
+				做法：把Key和Value交换位置
+				1、把Key Value 交换，调用SortByKey
+				2、调用完后交换回来
+				
+				scala> val rdd1 = sc.parallelize(List(("Tom",1),("Andy",2),("Jerry",4),("Mike",5)))
+				rdd1: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[42] at parallelize at <console>:24
+
+				scala> val rdd2 = sc.parallelize(List(("Jerry",1),("Tom",2),("Mike",4),("Kitty",5)))
+				rdd2: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[43] at parallelize at <console>:24
+
+				scala> val rdd3 = rdd1 union rdd2
+				rdd3: org.apache.spark.rdd.RDD[(String, Int)] = UnionRDD[44] at union at <console>:28
+
+				scala> rdd3.collect
+				res14: Array[(String, Int)] = Array((Tom,1), (Andy,2), (Jerry,4), (Mike,5), (Jerry,1), (Tom,2), (Mike,4), (Kitty,5))
+
+				scala> val rdd4 = rdd3.reduceByKey(_+_)
+				rdd4: org.apache.spark.rdd.RDD[(String, Int)] = ShuffledRDD[45] at reduceByKey at <console>:30
+
+				scala> rdd4.collect
+				res15: Array[(String, Int)] = Array((Tom,3), (Jerry,5), (Andy,2), (Mike,9), (Kitty,5))
+
+				scala> val rdd5 = rdd4.map(t => (t._2,t._1)).sortByKey(false).map(t=>(t._2,t._1))
+				rdd5: org.apache.spark.rdd.RDD[(String, Int)] = MapPartitionsRDD[50] at map at <console>:32
+
+				scala> rdd5.collect
+				res16: Array[(String, Int)] = Array((Mike,9), (Jerry,5), (Kitty,5), (Tom,3), (Andy,2))
+				
+				
+				解析执行过程：
+				rdd4.map(t => (t._2,t._1))   --> (3,Tom), (5,Jerry), (2,Andy), (9,Mike), (5,Kitty)
+				.sortByKey(false)  --> (9,Mike),(5,Jerry)  , (5,Kitty),(3,Tom), (2,Andy)
+				.map(t=>(t._2,t._1))--> (Mike,9), (Jerry,5), (Kitty,5), (Tom,3), (Andy,2)
+				
+				
+		（2）Action：立即执行计算
+			
+			
+	3、特性：
+		
+		（1）RDD的缓存机制：默认将RDD的数据缓存在内存中
+			（*）作用：提高性能
+			（*）使用：标识一下RDD可以被缓存：函数：persist 或者 cache
+			
+			举例：
+				
+				scala> var rdd1 = sc.textFile("hdfs://192.168.109.131:8020/tmp_files/test_Cache.txt")
+				rdd1: org.apache.spark.rdd.RDD[String] = hdfs://192.168.109.131:8020/tmp_files/test_Cache.txt MapPartitionsRDD[1] at textFile at <console>:24
+
+				scala> rdd1.count    没有缓存，直接计算
+				res0: Long = 923452                                                             
+
+				scala> rdd1.cache     标识RDD可以被缓存，不会触发计算
+				res1: org.apache.spark.rdd.RDD[String] = hdfs://192.168.109.131:8020/tmp_files/test_Cache.txt MapPartitionsRDD[1] at textFile at <console>:24
+
+				scala> rdd1.count     触发计算，并把计算结果缓存
+				res2: Long = 923452                                                             
+
+				scala> rdd1.count	  直接从缓存中读取数据
+				res3: Long = 923452                                                             
+
+				scala> rdd1.count     直接从缓存中读取数据
+				res4: Long = 923452
+			
+		（2）RDD的容错机制：通过 检查点（checkpoint）来实现
+				
+			（*）RDD 的检查点：是一种容错机制
+				
+				概念：Lineage 血统
+				理解：表示任务执行的生命周期（整个任务的执行过程）
+				
+			（*）RDD的检查点类型
+				
+				sc.setCheckPointDir(设置检查点目录)
+				
+				1、本地目录：不推荐
+				
+				2、HDFS目录：用于生产
+					
+					举例：
+					hadoop dfs -mkdir /sparkchkpt0818
+					
+				scala> sc.setCheckpointDir("hdfs://192.168.109.131:8020/sparkchkpt0818")
+
+				scala> var rdd1 = sc.textFile("hdfs://192.168.109.131:8020/tmp_files/test_Cache.txt")
+				rdd1: org.apache.spark.rdd.RDD[String] = hdfs://192.168.109.131:8020/tmp_files/test_Cache.txt MapPartitionsRDD[1] at textFile at <console>:24
+
+				scala> rdd1.checkpoint
+
+				scala> rdd1.count
+				res2: Long = 923452                                                             
+
+		（3）依赖关系：宽依赖、窄依赖
+			
+			宽依赖：多个子RDD分区，依赖同一个父RDD分区
+			
+			窄依赖：每一个父RDD分区，最多被一个子RDD分区使用
+			
+			任务划分阶段的依据：宽依赖
+			
+六、RDD的高级算子，比较复杂，功能丰富
+	
+	1、mapPartitionsWithIndex:
+		对RDD中的每个分区（带有下标）进行操作，下标用index来表示
+		通过这个算子可以获取分区号
+		
+		def mapPartitionsWithIndex[U](f: (Int, Iterator[T]) ⇒ Iterator[U])
+		f: (Int, Iterator[T]) ⇒ Iterator[U]
+		解释：
+		定义一个函数，对分区进行处理
+		f 接收两个参数，第一个参数 代表分区号。第二个代表分区中的元素。Iterator[U] 处理完后的结果
+		
+		举例：
+		scala> val rdd1 = sc.parallelize(List(1,2,3,4,5,6,7,8,9),3)
+		rdd1: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[3] at parallelize at <console>:24
+
+		scala> def fun1(index:Int,iter:Iterator[Int]) : Interator[String] = {
+			 | iter.toList.map(x => "[PartId: " + index + " , value = " + x + " ]").iterator
+			 | }
+		<console>:23: error: not found: type Interator
+			   def fun1(index:Int,iter:Iterator[Int]) : Interator[String] = {
+														^
+
+		scala> def fun1(index:Int,iter:Iterator[Int]) : Iterator[String] = {
+			 | iter.toList.map(x => "[PartId: " + index + " , value = " + x + " ]").iterator
+			 | }
+		fun1: (index: Int, iter: Iterator[Int])Iterator[String]
+
+		scala> rdd1.mapPartitionsWithIndex(fun1).collect
+		res3: Array[String] = Array(
+		[PartId: 0 , value = 1 ], 
+		[PartId: 0 , value = 2 ], 
+		[PartId: 0 , value = 3 ], 
+		[PartId: 1 , value = 4 ], 
+		[PartId: 1 , value = 5 ], 
+		[PartId: 1 , value = 6 ], 
+		[PartId: 2 , value = 7 ], 
+		[PartId: 2 , value = 8 ], 
+		[PartId: 2 , value = 9 ])
+		
+		操作数据库：针对分区进行操作
+		
+		mapPartitions
+		
+	2、aggregate：聚合操作
+		
+		（*）先对局部数据进行聚合操作，然后再对全局数据进行聚合操作
+		
+		（*）举例
+			
+			scala> val rdd1 = sc.parallelize(List(1,2,3,4,5),2)
+			rdd1: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[0] at parallelize at <console>:24
+
+			scala> def fun1(index:Int,iter:Iterator[Int]) : Iterator[String] = {
+				 | iter.toList.map( x => "[PartId: " + index + " , value = " + x + "]").iterator
+				 | }
+			fun1: (index: Int, iter: Iterator[Int])Iterator[String]
+
+			scala> rdd1.mapPartitionsWithIndex(fun1).collect
+			res0: Array[String] = Array([PartId: 0 , value = 1], [PartId: 0 , value = 2], [PartId: 1 , value = 3], [PartId: 1 , value = 4], [PartId: 1 , value = 5])
+
+			scala> rdd1.aggregate(0)(max(_,_),_+_)
+			<console>:27: error: overloaded method value max with alternatives:
+			  (columnName: String)org.apache.spark.sql.Column <and>
+			  (e: org.apache.spark.sql.Column)org.apache.spark.sql.Column
+			 cannot be applied to (Int, Int)
+				   rdd1.aggregate(0)(max(_,_),_+_)
+									 ^
+
+			scala> import scala.math._
+			import scala.math._
+
+			scala> rdd1.aggregate(0)(max(_,_),_+_)
+			res2: Int = 7
+		
+			修改初始值为10
+			scala> rdd1.aggregate(10)(max(_,_),_+_)
+			res3: Int = 30
+			
+			分析结果：
+				初始值是10，代表每个分区中，都多了一个10.
+				局部操作，每个分区的最大值都是10.
+				全局操作，10 也要在全局操作时生效，即 10 + 10 + 10 = 30
+				
+			
+			将 RDD的元素求和：
+			方式一：RDD.map
+			方式二：使用聚合操作
+			
+			scala> rdd1.aggregate(0)(_+_,_+_)
+			res5: Int = 15
+			
+			scala> rdd1.aggregate(10)(_+_,_+_)
+			res6: Int = 45
+			
+			scala> val rdd2 = sc.parallelize(List("a","b","c","d","e","f"),2)
+			rdd2: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[2] at parallelize at <console>:27
+
+			scala> def fun1(index:Int,iter:Iterator[String]) : Iterator[String] = {
+				 | iter.toList.map( x => "[PartId: " + index + " , value = " + x + "]").iterator
+				 | }
+			fun1: (index: Int, iter: Iterator[String])Iterator[String]
+
+			scala> rdd2.mapPartitionsWithIndex(fun1).collect
+			res8: Array[String] = Array(
+			[PartId: 0 , value = a], [PartId: 0 , value = b], [PartId: 0 , value = c], 
+			[PartId: 1 , value = d], [PartId: 1 , value = e], [PartId: 1 , value = f])
+			
+			scala> rdd2.aggregate("")(_+_,_+_)
+			res10: String = abcdef
+
+			scala> rdd2.aggregate("")(_+_,_+_)
+			res11: String = defabc
+
+			scala> rdd2.aggregate("*")(_+_,_+_)
+			res13: String = **def*abc
+
+			scala> rdd2.aggregate("*")(_+_,_+_)
+			res14: String = **abc*def			
+						
+		（*）复杂的例子
+			
+			1、
+			scala> val rdd3 = sc.parallelize(List("12","23","345","4567"),2)
+			rdd3: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[4] at parallelize at <console>:27
+
+			scala> rdd3.mapPartitionsWithIndex(fun1)
+			res15: org.apache.spark.rdd.RDD[String] = MapPartitionsRDD[5] at mapPartitionsWithIndex at <console>:32
+
+			scala> rdd3.mapPartitionsWithIndex(fun1).collect
+			res16: Array[String] = Array(
+			[PartId: 0 , value = 12], [PartId: 0 , value = 23], 
+			[PartId: 1 , value = 345], [PartId: 1 , value = 4567])
+			
+			scala> rdd3.aggregate("")((x,y) => math.max(x.length,y.length).toString,(x,y)=>x+y)
+			res20: String = 24
+
+			scala> rdd3.aggregate("")((x,y) => math.max(x.length,y.length).toString,(x,y)=>x+y)
+			res21: String = 42
+			
+			分析：
+			第一个分区：
+				第一次比较："" 和 "12" 比，求长度最大值：2 。2 ---> "2".
+				第二次比较："2" 和 "23" 比，求长度最大值：2 。2 ---> "2".
+
+			第二个分区：
+				第一次比较："" 和 "345" 比，求长度最大值：3 。3 ---> "3".
+				第二次比较："3" 和 "4567" 比，求长度最大值：4 。4 ---> "4".
+
+
+			2、
+			scala> val rdd3 = sc.parallelize(List("12","23","345",""),2)
+			rdd3: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[7] at parallelize at <console>:27
+
+			scala> rdd3.aggregate("")((x,y) => math.min(x.length,y.length).toString,(x,y)=>x+y)
+			res22: String = 01
+
+			scala> rdd3.aggregate("")((x,y) => math.min(x.length,y.length).toString,(x,y)=>x+y)
+			res23: String = 01
+
+			scala> rdd3.aggregate("")((x,y) => math.min(x.length,y.length).toString,(x,y)=>x+y)
+			res24: String = 01
+
+			scala> rdd3.aggregate("")((x,y) => math.min(x.length,y.length).toString,(x,y)=>x+y)
+			res25: String = 10
+
+			分析：
+				第一个分区：
+					第一次比较："" 和 "12" 比，求长度最小值：0 。0 ---> "0".
+					第二次比较："0" 和 "23" 比，求长度最小值：1 。1 ---> "1".
+
+				第二个分区：
+					第一次比较："" 和 "345" 比，求长度最小值：0 。0 ---> "0".
+					第二次比较："0" 和 "" 比，求长度最小值：0 。0 ---> "0".
+			
+			3、
+			
+			scala> val rdd3 = sc.parallelize(List("12","23","","345"),2)
+			rdd3: org.apache.spark.rdd.RDD[String] = ParallelCollectionRDD[8] at parallelize at <console>:27
+
+			scala> rdd3.aggregate("")((x,y) => math.min(x.length,y.length).toString,(x,y)=>x+y)
+			res26: String = 11   
+
+			分析：
+				第一个分区：
+					第一次比较："" 和 "12" 比，求长度最小值：0 。0 ---> "0".
+					第二次比较："0" 和 "23" 比，求长度最小值：1 。1 ---> "1".
+
+				第二个分区：
+					第一次比较："" 和 "" 比，求长度最小值：0 。0 ---> "0".
+					第二次比较："0" 和 "345" 比，求长度最小值：1 。1 ---> "1".			
+
+	3、aggregateByKey：类似于aggregate，操作<Key Value>的数据类型
+		
+		举例：
+			scala> val pairRDD = sc.parallelize(List(("cat",2),("cat",5),("mouse",4),("cat",12),("dog",12),("mouse",2)),2)
+			pairRDD: org.apache.spark.rdd.RDD[(String, Int)] = ParallelCollectionRDD[9] at parallelize at <console>:27
+
+			scala> def fun3(index:Int,iter:Iterator[(String,Int)]): Iterator[String] = {
+				 | iter.toList.map(x => "[partID:" +  index + ", val: " + x + "]").iterator
+				 | }
+			fun3: (index: Int, iter: Iterator[(String, Int)])Iterator[String]
+
+			scala> pairRDD.mapPartitionsWithIndex(fun3).collect
+			res27: Array[String] = Array(
+			[partID:0, val: (cat,2)], [partID:0, val: (cat,5)], [partID:0, val: (mouse,4)], 
+			[partID:1, val: (cat,12)], [partID:1, val: (dog,12)], [partID:1, val: (mouse,2)])
+
+			scala> pairRDD.aggregateByKey(0)(math.max(_,_),_+_).collect
+			res28: Array[(String, Int)] = Array((dog,12), (cat,17), (mouse,6))
+			
+			程序分析：
+			0：(cat,5)(mouse,4)
+			1：(cat,12)(dog,12)(mouse,2)
+			
+			(cat,17)  (mouse,6)   (dog,12)
+
+	4、coalesce 与 repartition
+		
+		这两个算子都与分区有关系
+		
+		都是对RDD进行重分区。创建RDD时可以创建分区个数，这两个用于重分区。
+		
+		区别：
+		（1）coalesce ： 默认不会进行shuffle。
+		（2）repartition：对数据真正进行shuffle（在网络上重新分区）
+		
+		scala> val rdd1 = sc.parallelize(List(1,2,3,4,5,6,7,8,9),2)
+		rdd1: org.apache.spark.rdd.RDD[Int] = ParallelCollectionRDD[12] at parallelize at <console>:27
+
+		scala> val rdd2 = rdd1.repartition(3)
+		rdd2: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[16] at repartition at <console>:29
+
+		scala> rdd2.partitions.length
+		res29: Int = 3
+
+		scala> val rdd3 = rdd1.coalesce(3)
+		rdd3: org.apache.spark.rdd.RDD[Int] = CoalescedRDD[17] at coalesce at <console>:29
+
+		scala> rdd3.partitions.length
+		res30: Int = 2
+
+		scala> val rdd3 = rdd1.coalesce(3,true)
+		rdd3: org.apache.spark.rdd.RDD[Int] = MapPartitionsRDD[21] at coalesce at <console>:29
+
+		scala> rdd3.partitions.length
+		res31: Int = 3
+
+	5、其他高级算子
+		
+		http://homepage.cs.latrobe.edu.au/zhe/ZhenHeSparkRDDAPIExamples.html
+
+七、编程案例
+	
+	使用 Spark Core 完成编程案例。
+	
+	（1）分析Tomcat访问日志。
+		
+		需求：找到访问量最高的两个网页。
+		（1）对网页的访问量 统计求和。
+		（2）排序，降序排列
+		
+	（2）创建自定义分区
+		
+		与MapReduce类似
+		
+		需求：按照jsp名字，将访问日志进行分区。
+		一个文件就是一个分区，并且一个文件中只包含一个jsp的名字。
+		
+	（3）操作数据库：把结果存入到mysql
+	
+	（4）使用JDBC RDD 操作数据库
+		基本不会用到
+		
+		spark 封装了可以直接操作关系型数据库的算子
+		
+---------------Spark SQL-------------------
+类似于 Hive
+
+一、Spark SQL 基础
+			
+	1、什么是 Spark SQL？
+	
+		Spark SQL is Apache Spark's module for working with structured data.
+		Spark SQL 是 spark的一个模块 ， 来处理结构化的数据。
+		在 Spark SQL 中，不能处理非结构化的数据。
+		
+		特点：
+		1、容易集成：安装Spark的时候，已经集成好了，不需要单独安装。
+		2、统一的数据访问方式：
+			
+		3、完全兼容hive。可以直接将hive中的数据，读取到Spark SQL 中处理。
+		4、支持标准的数据连接：JDBC
+	
+	2、为什么要学习spark sql？
+		基于spark，效率比hive高。
+		spark sql 降低了使用spark的门槛。
+		
+	3、核心的概念：表（DataFrame 或 DataSet）
+		
+		表 = 表结构 + 数据
+		DataFrame = Schema （case class）  +  RDD（数据）
+	
+		DataSet 是 spark 1.6 之后，对 DataFrame做的一个封装。
+		
+	4、创建DataFrame
+		
+		方式一：使用 case class 样本类。特点：支持模式匹配。
+		
+			定义表的schema：
+			scala> case class Emp(empno:Int,ename:String,job:String,mgr:Int,hiredate:String,sal:Int,comm:Int,deptno:Int); 
+			defined class Emp
+			
+			导入数据
+			scala> var lines = sc.textFile("/usr/local/tmp_files/emp.csv").map(_.split(","))
+			lines: org.apache.spark.rdd.RDD[Array[String]] = MapPartitionsRDD[2] at map at <console>:24
+
+			把每行数据映射到Emp类上
+			scala> val allEmp = lines.map(x => Emp(x(0).toInt,x(1),x(2),x(3).toInt,x(4),x(5).toInt,x(6).toInt,x(7).toInt))
+			allEmp: org.apache.spark.rdd.RDD[Emp] = MapPartitionsRDD[3] at map at <console>:28
+
+			生成Dataframe
+			scala> val df1 = allEmp.toDF
+			df1: org.apache.spark.sql.DataFrame = [empno: int, ename: string ... 6 more fields]
+
+			scala> df1.show
+			+-----+------+---------+----+----------+----+----+------+
+			|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+------+---------+----+----------+----+----+------+
+			| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+			| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+			| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+			| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+			| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+			| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+			| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+			| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+			+-----+------+---------+----+----------+----+----+------+	
+
+		方式二：使用Spark Session
+			（1）什么是Spark Session？
+				Spark session available as 'spark'.
+				
+				2.0以后引入的统一的访问方式，可以访问所有spark组件。
+				
+			（2）使用StructType创建schema
+				
+				import org.apache.spark.sql.types._
+				
+				val myschema = StructType(
+				List(
+				StructField("empno", DataTypes.IntegerType), 
+				StructField("ename", DataTypes.StringType),
+				StructField("job", DataTypes.StringType),
+				StructField("mgr", DataTypes.IntegerType),
+				StructField("hiredate", DataTypes.StringType),
+				StructField("sal", DataTypes.IntegerType),
+				StructField("comm", DataTypes.IntegerType),
+				StructField("deptno", DataTypes.IntegerType)
+				)
+				)
+				
+				val myschema = StructType( List( StructField("empno", DataTypes.IntegerType),  StructField("ename", DataTypes.StringType), StructField("job", DataTypes.StringType), StructField("mgr", DataTypes.IntegerType), StructField("hiredate", DataTypes.StringType), StructField("sal", DataTypes.IntegerType), StructField("comm", DataTypes.IntegerType), StructField("deptno", DataTypes.IntegerType)))
+				
+				
+				scala> val myschema = StructType( List( StructField("empno", DataTypes.IntegerType),  StructField("ename", DataTypes.StringType), StructField("job", DataTypes.StringType), StructField("mgr", DataTypes.IntegerType), StructField("hiredate", DataTypes.StringType), StructField("sal", DataTypes.IntegerType), StructField("comm", DataTypes.IntegerType), StructField("deptno", DataTypes.IntegerType)))
+				myschema: org.apache.spark.sql.types.StructType = StructType(StructField(empno,IntegerType,true), StructField(ename,StringType,true), StructField(job,StringType,true), StructField(mgr,IntegerType,true), StructField(hiredate,StringType,true), StructField(sal,IntegerType,true), StructField(comm,IntegerType,true), StructField(deptno,IntegerType,true))
+
+				scala> var lines = sc.textFile("/usr/local/tmp_files/emp.csv").map(_.split(","))
+				lines: org.apache.spark.rdd.RDD[Array[String]] = MapPartitionsRDD[9] at map at <console>:27
+
+				scala> import org.apache.spark.sql.Row
+				import org.apache.spark.sql.Row
+
+				scala> val allEmp = lines.map(x=>Row(x(0).toInt,x(1),x(2),x(3).toInt,x(4),x(5).toInt,x(6).toInt,x(7).toInt))
+				allEmp: org.apache.spark.rdd.RDD[org.apache.spark.sql.Row] = MapPartitionsRDD[10] at map at <console>:30
+
+				scala> val df2 = spark.createDataFrame(allEmp,myschema)
+				df2: org.apache.spark.sql.DataFrame = [empno: int, ename: string ... 6 more fields]
+
+				scala> df2.show
+				+-----+------+---------+----+----------+----+----+------+
+				|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+				+-----+------+---------+----+----------+----+----+------+
+				| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+				| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+				| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+				| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+				| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+				| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+				| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+				| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+				| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+				| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+				| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+				| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+				| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+				| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+				+-----+------+---------+----+----------+----+----+------+
+		
+		方式三、直接读取一个带格式的文件：Json文件
+			
+			scala> var df3 = spark.read.json("/usr/local/tmp_files/people.json")
+			df3: org.apache.spark.sql.DataFrame = [age: bigint, name: string]               
+
+			scala> df3.show
+			+----+-------+
+			| age|   name|
+			+----+-------+
+			|null|Michael|
+			|  30|   Andy|
+			|  19| Justin|
+			+----+-------+
+
+
+			scala> val df4 = spark.read.format("json").load("/usr/local/tmp_files/people.json")
+			df4: org.apache.spark.sql.DataFrame = [age: bigint, name: string]
+
+			scala> df4.show
+			+----+-------+
+			| age|   name|
+			+----+-------+
+			|null|Michael|
+			|  30|   Andy|
+			|  19| Justin|
+			+----+-------+
+			
+	5、操作DataFrame
+		（1）DSL语句
+		
+			scala> df1.printSchema
+			root
+			 |-- empno: integer (nullable = true)
+			 |-- ename: string (nullable = true)
+			 |-- job: string (nullable = true)
+			 |-- mgr: integer (nullable = true)
+			 |-- hiredate: string (nullable = true)
+			 |-- sal: integer (nullable = true)
+			 |-- comm: integer (nullable = true)
+			 |-- deptno: integer (nullable = true)
+
+
+			scala> df1.select("ename","sal").show
+			+------+----+
+			| ename| sal|
+			+------+----+
+			| SMITH| 800|
+			| ALLEN|1600|
+			|  WARD|1250|
+			| JONES|2975|
+			|MARTIN|1250|
+			| BLAKE|2850|
+			| CLARK|2450|
+			| SCOTT|3000|
+			|  KING|5000|
+			|TURNER|1500|
+			| ADAMS|1100|
+			| JAMES| 950|
+			|  FORD|3000|
+			|MILLER|1300|
+			+------+----+
+
+
+
+			scala> df1.select($"ename",$"sal",$"sal"+100).show
+			+------+----+-----------+
+			| ename| sal|(sal + 100)|
+			+------+----+-----------+
+			| SMITH| 800|        900|
+			| ALLEN|1600|       1700|
+			|  WARD|1250|       1350|
+			| JONES|2975|       3075|
+			|MARTIN|1250|       1350|
+			| BLAKE|2850|       2950|
+			| CLARK|2450|       2550|
+			| SCOTT|3000|       3100|
+			|  KING|5000|       5100|
+			|TURNER|1500|       1600|
+			| ADAMS|1100|       1200|
+			| JAMES| 950|       1050|
+			|  FORD|3000|       3100|
+			|MILLER|1300|       1400|
+			+------+----+-----------+
+			
+			scala> df1.filter($"sal" > 2000).show
+			+-----+-----+---------+----+----------+----+----+------+
+			|empno|ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+-----+---------+----+----------+----+----+------+
+			| 7566|JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7698|BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782|CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788|SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839| KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7902| FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			+-----+-----+---------+----+----------+----+----+------+
+
+
+			scala> df1.groupBy($"deptno").count.show
+			+------+-----+                                                                  
+			|deptno|count|
+			+------+-----+
+			|    20|    5|
+			|    10|    3|
+			|    30|    6|
+			+------+-----+
+			
+			
+		（2）SQL语句
+			
+			注意：不能直接执行sql，需要把 DataFrame 生成一个视图，执行SQL。
+			
+			scala> df1.createOrReplaceTempView("emp123")
+
+			scala> spark.sql("select * from emp123")
+			res4: org.apache.spark.sql.DataFrame = [empno: int, ename: string ... 6 more fields]
+
+			scala> spark.sql("select * from emp123").show
+			+-----+------+---------+----+----------+----+----+------+
+			|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+------+---------+----+----------+----+----+------+
+			| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+			| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+			| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+			| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+			| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+			| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+			| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+			| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+			+-----+------+---------+----+----------+----+----+------+
+
+
+			scala> spark.sql("select * from emp123 where sal > 2000").show
+			+-----+-----+---------+----+----------+----+----+------+
+			|empno|ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+-----+---------+----+----------+----+----+------+
+			| 7566|JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7698|BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782|CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788|SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839| KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7902| FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			+-----+-----+---------+----+----------+----+----+------+
+
+
+			scala> spark.sql("select deptno,count(1) from emp123 group by deptno").show
+			+------+--------+                                                               
+			|deptno|count(1)|
+			+------+--------+
+			|    20|       5|
+			|    10|       3|
+			|    30|       6|
+			+------+--------+
+			
+			表连接：
+			scala> case class Dept(deptno:Int,dname:String,loc:String)
+			defined class Dept
+
+			scala> val lines = sc.textFile("/usr/local/tmp_files/dept.csv").map(_.split(","))
+			lines: org.apache.spark.rdd.RDD[Array[String]] = MapPartitionsRDD[31] at map at <console>:24
+
+			scala> val allDept = lines.map(x=>Dept(x(0).toInt,x(1),x(2)))
+			allDept: org.apache.spark.rdd.RDD[Dept] = MapPartitionsRDD[32] at map at <console>:28
+
+			scala> val df2 = allDept.toDF
+			df2: org.apache.spark.sql.DataFrame = [deptno: int, dname: string ... 1 more field]
+
+			scala> df2.createOrReplaceTempView("dept123")
+
+			scala> spark.sql("select dname,ename from emp123,dept123 where emp123.deptno=dept123.deptno").show
+			+----------+------+                                                             
+			|     dname| ename|
+			+----------+------+
+			|  RESEARCH| SMITH|
+			|  RESEARCH| JONES|
+			|  RESEARCH| SCOTT|
+			|  RESEARCH| ADAMS|
+			|  RESEARCH|  FORD|
+			|ACCOUNTING| CLARK|
+			|ACCOUNTING|  KING|
+			|ACCOUNTING|MILLER|
+			|     SALES| ALLEN|
+			|     SALES|  WARD|
+			|     SALES|MARTIN|
+			|     SALES| BLAKE|
+			|     SALES|TURNER|
+			|     SALES| JAMES|
+			+----------+------+
+			
+	6、操作DataSet：跟DataFrame类似，是一套全新的接口。
+		可以把DataSet理解成高级的DataFrame。
+		
+		（1）创建DataSet
+			
+			举例：
+			1、使用序列
+				scala> case class MyData(a:Int,b:String)
+				defined class MyData
+
+				scala> val ds = Seq(MyData(1,"Tom"),MyData(2,"Mary")).toDS
+				ds: org.apache.spark.sql.Dataset[MyData] = [a: int, b: string]
+
+				scala> ds.show
+				+---+----+
+				|  a|   b|
+				+---+----+
+				|  1| Tom|
+				|  2|Mary|
+				+---+----+
+			
+			
+			2、使用Json数据
+				
+				scala> case class Person(name:String,age:Int)
+				defined class Person
+
+				scala> val df = spark.read.format("json").load("/usr/local/tmp_files/people.json")
+				df: org.apache.spark.sql.DataFrame = [age: bigint, name: string]
+
+				scala> df.as[Person]
+				org.apache.spark.sql.AnalysisException: Cannot up cast `age` from bigint to int as it may truncate
+				The type path of the target object is:
+				- field (class: "scala.Int", name: "age")
+				- root class: "Person"
+				You can either add an explicit cast to the input data or choose a higher precision type of the field in the target object;
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$.org$apache$spark$sql$catalyst$analysis$Analyzer$ResolveUpCast$$fail(Analyzer.scala:2119)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$$anonfun$apply$34$$anonfun$applyOrElse$14.applyOrElse(Analyzer.scala:2145)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$$anonfun$apply$34$$anonfun$applyOrElse$14.applyOrElse(Analyzer.scala:2136)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$3.apply(TreeNode.scala:288)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$3.apply(TreeNode.scala:288)
+				  at org.apache.spark.sql.catalyst.trees.CurrentOrigin$.withOrigin(TreeNode.scala:70)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.transformDown(TreeNode.scala:287)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$transformDown$1.apply(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$transformDown$1.apply(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$5.apply(TreeNode.scala:331)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.mapProductIterator(TreeNode.scala:188)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.transformChildren(TreeNode.scala:329)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.transformDown(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$transformDown$1.apply(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$transformDown$1.apply(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$5$$anonfun$apply$11.apply(TreeNode.scala:360)
+				  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+				  at scala.collection.TraversableLike$$anonfun$map$1.apply(TraversableLike.scala:234)
+				  at scala.collection.immutable.List.foreach(List.scala:381)
+				  at scala.collection.TraversableLike$class.map(TraversableLike.scala:234)
+				  at scala.collection.immutable.List.map(List.scala:285)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$5.apply(TreeNode.scala:358)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.mapProductIterator(TreeNode.scala:188)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.transformChildren(TreeNode.scala:329)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.transformDown(TreeNode.scala:293)
+				  at org.apache.spark.sql.catalyst.plans.QueryPlan.transformExpressionDown$1(QueryPlan.scala:248)
+				  at org.apache.spark.sql.catalyst.plans.QueryPlan.org$apache$spark$sql$catalyst$plans$QueryPlan$$recursiveTransform$1(QueryPlan.scala:258)
+				  at org.apache.spark.sql.catalyst.plans.QueryPlan$$anonfun$6.apply(QueryPlan.scala:267)
+				  at org.apache.spark.sql.catalyst.trees.TreeNode.mapProductIterator(TreeNode.scala:188)
+				  at org.apache.spark.sql.catalyst.plans.QueryPlan.transformExpressionsDown(QueryPlan.scala:267)
+				  at org.apache.spark.sql.catalyst.plans.QueryPlan.transformExpressions(QueryPlan.scala:236)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$$anonfun$apply$34.applyOrElse(Analyzer.scala:2136)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$$anonfun$apply$34.applyOrElse(Analyzer.scala:2132)
+				  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+				  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+				  at org.apache.spark.sql.catalyst.trees.CurrentOrigin$.withOrigin(TreeNode.scala:70)
+				  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan.resolveOperators(LogicalPlan.scala:60)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$.apply(Analyzer.scala:2132)
+				  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveUpCast$.apply(Analyzer.scala:2117)
+				  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:85)
+				  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:82)
+				  at scala.collection.LinearSeqOptimized$class.foldLeft(LinearSeqOptimized.scala:124)
+				  at scala.collection.immutable.List.foldLeft(List.scala:84)
+				  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:82)
+				  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:74)
+				  at scala.collection.immutable.List.foreach(List.scala:381)
+				  at org.apache.spark.sql.catalyst.rules.RuleExecutor.execute(RuleExecutor.scala:74)
+				  at org.apache.spark.sql.catalyst.encoders.ExpressionEncoder.resolveAndBind(ExpressionEncoder.scala:258)
+				  at org.apache.spark.sql.Dataset.<init>(Dataset.scala:209)
+				  at org.apache.spark.sql.Dataset.<init>(Dataset.scala:167)
+				  at org.apache.spark.sql.Dataset$.apply(Dataset.scala:58)
+				  at org.apache.spark.sql.Dataset.as(Dataset.scala:376)
+				  ... 48 elided
+
+				scala> case class Person(name:String,age:bigint)
+				<console>:11: error: not found: type bigint
+					   case class Person(name:String,age:bigint)
+														 ^
+
+				scala> case class Person(name:String,age:Bigint)
+				<console>:11: error: not found: type Bigint
+					   case class Person(name:String,age:Bigint)
+														 ^
+
+				scala> case class Person(name:String,age:BigInt)
+				defined class Person
+
+				scala> df.as[Person]
+				res12: org.apache.spark.sql.Dataset[Person] = [age: bigint, name: string]
+			
+				scala> df.as[Person].show
+				+----+-------+
+				| age|   name|
+				+----+-------+
+				|null|Michael|
+				|  30|   Andy|
+				|  19| Justin|
+				+----+-------+
+			
+			
+		3、使用其他数据
+			
+			DataSet 可以理解为 RDD操作和DataFrame操作结合
+			
+			scala> val linesDS=spark.read.text("/usr/local/tmp_files/test_WordCount.txt").as[String]
+			linesDS: org.apache.spark.sql.Dataset[String] = [value: string]
+
+			scala> val words = linesDS.flatMap(_.split(" ")).filter(_.length>3)
+			words: org.apache.spark.sql.Dataset[String] = [value: string]
+
+			scala> words.show
+			+----------+
+			|     value|
+			+----------+
+			|      love|
+			|   Beijing|
+			|      love|
+			|     China|
+			|   Beijing|
+			|   capital|
+			|     China|
+			|hehehehehe|
+			+----------+
+
+
+			scala> val result = linesDS.flatMap(_.split(" ")).map((_,1)).groupByKey(x=>x._1).count
+			result: org.apache.spark.sql.Dataset[(String, Long)] = [value: string, count(1): bigint]
+
+			scala> result.show
+			+----------+--------+                                                           
+			|     value|count(1)|
+			+----------+--------+
+			|hehehehehe|       1|
+			|   Beijing|       2|
+			|      love|       2|
+			|     China|       2|
+			|        is|       1|
+			|   capital|       1|
+			|       the|       1|
+			|        of|       1|
+			|         I|       2|
+			+----------+--------+
+
+
+			scala> result.orderBy($"value").show
+			+----------+--------+                                                           
+			|     value|count(1)|
+			+----------+--------+
+			|   Beijing|       2|
+			|     China|       2|
+			|         I|       2|
+			|   capital|       1|
+			|hehehehehe|       1|
+			|        is|       1|
+			|      love|       2|
+			|        of|       1|
+			|       the|       1|
+			+----------+--------+
+
+
+			scala> result.orderBy($"count(1)").show
+			+----------+--------+                                                           
+			|     value|count(1)|
+			+----------+--------+
+			|        is|       1|
+			|   capital|       1|
+			|        of|       1|
+			|       the|       1|
+			|hehehehehe|       1|
+			|   Beijing|       2|
+			|     China|       2|
+			|      love|       2|
+			|         I|       2|
+			+----------+--------+
+	（2）DataSet操作案例：
+		
+		scala> val empDS = df1.as[Emp]
+		empDS: org.apache.spark.sql.Dataset[Emp] = [empno: int, ename: string ... 6 more fields]
+
+		scala> empDS.filter(_.sal > 3000).show
+		+-----+-----+---------+----+----------+----+----+------+
+		|empno|ename|      job| mgr|  hiredate| sal|comm|deptno|
+		+-----+-----+---------+----+----------+----+----+------+
+		| 7839| KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+		+-----+-----+---------+----+----------+----+----+------+
+
+
+		scala> empDS.filter(_.deptno==10).show
+		+-----+------+---------+----+----------+----+----+------+
+		|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+		+-----+------+---------+----+----------+----+----+------+
+		| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+		| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+		| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+		+-----+------+---------+----+----------+----+----+------+
+		
+		DataSet多表查询
+		scala> val deptDS = allDept.toDS
+		deptDS: org.apache.spark.sql.Dataset[Dept] = [deptno: int, dname: string ... 1 more field]
+
+		scala> val result = deptDS.join(empDS,"deptno")
+		result: org.apache.spark.sql.DataFrame = [deptno: int, dname: string ... 8 more fields]
+
+		scala> result.show
+		+------+----------+--------+-----+------+---------+----+----------+----+----+   
+		|deptno|     dname|     loc|empno| ename|      job| mgr|  hiredate| sal|comm|
+		+------+----------+--------+-----+------+---------+----+----------+----+----+
+		|    20|  RESEARCH|  DALLAS| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|
+		|    20|  RESEARCH|  DALLAS| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|
+		|    20|  RESEARCH|  DALLAS| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|
+		|    20|  RESEARCH|  DALLAS| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|
+		|    20|  RESEARCH|  DALLAS| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|
+		|    10|ACCOUNTING|NEW YORK| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|
+		|    10|ACCOUNTING|NEW YORK| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|
+		|    10|ACCOUNTING|NEW YORK| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|
+		|    30|     SALES| CHICAGO| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|
+		|    30|     SALES| CHICAGO| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|
+		|    30|     SALES| CHICAGO| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|
+		|    30|     SALES| CHICAGO| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|
+		|    30|     SALES| CHICAGO| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|
+		|    30|     SALES| CHICAGO| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|
+		+------+----------+--------+-----+------+---------+----+----------+----+----+
+
+
+		scala> val result = deptDS.joinWith(empDS,deptDS("deptno")===empDS("deptno"))
+		result: org.apache.spark.sql.Dataset[(Dept, Emp)] = [_1: struct<deptno: int, dname: string ... 1 more field>, _2: struct<empno: int, ename: string ... 6 more fields>]
+
+		scala> result.show
+		+--------------------+--------------------+                                     
+		|                  _1|                  _2|
+		+--------------------+--------------------+
+		|[20,RESEARCH,DALLAS]|[7369,SMITH,CLERK...|
+		|[20,RESEARCH,DALLAS]|[7566,JONES,MANAG...|
+		|[20,RESEARCH,DALLAS]|[7788,SCOTT,ANALY...|
+		|[20,RESEARCH,DALLAS]|[7876,ADAMS,CLERK...|
+		|[20,RESEARCH,DALLAS]|[7902,FORD,ANALYS...|
+		|[10,ACCOUNTING,NE...|[7782,CLARK,MANAG...|
+		|[10,ACCOUNTING,NE...|[7839,KING,PRESID...|
+		|[10,ACCOUNTING,NE...|[7934,MILLER,CLER...|
+		|  [30,SALES,CHICAGO]|[7499,ALLEN,SALES...|
+		|  [30,SALES,CHICAGO]|[7521,WARD,SALESM...|
+		|  [30,SALES,CHICAGO]|[7654,MARTIN,SALE...|
+		|  [30,SALES,CHICAGO]|[7698,BLAKE,MANAG...|
+		|  [30,SALES,CHICAGO]|[7844,TURNER,SALE...|
+		|  [30,SALES,CHICAGO]|[7900,JAMES,CLERK...|
+		+--------------------+--------------------+
+
+
+		scala> result.printSchema
+		root
+		 |-- _1: struct (nullable = false)
+		 |    |-- deptno: integer (nullable = true)
+		 |    |-- dname: string (nullable = true)
+		 |    |-- loc: string (nullable = true)
+		 |-- _2: struct (nullable = false)
+		 |    |-- empno: integer (nullable = true)
+		 |    |-- ename: string (nullable = true)
+		 |    |-- job: string (nullable = true)
+		 |    |-- mgr: integer (nullable = true)
+		 |    |-- hiredate: string (nullable = true)
+		 |    |-- sal: integer (nullable = true)
+		 |    |-- comm: integer (nullable = true)
+		 |    |-- deptno: integer (nullable = true)
+
+	7、Spark SQL 中的视图
+		
+		（1）视图是一个虚表，不存储数据
+		
+		（2）两种类型
+			（*）普通视图：本地视图，只在当前session中有效
+			
+			（*）全局视图：在不同的session都有用。全局视图在 global_temp 命名空间中，类似于一个库。
+			
+			
+			scala> df1.create
+			createGlobalTempView   createOrReplaceTempView   createTempView
+			第一个是全局视图，后面两个是本地视图。
+			
+			scala> df1.createGlobalTempView("emp0821")
+
+			scala> df1.createOrReplaceTempView("emp08212")
+
+			scala> spark.sql("select * from emp08212").show
+			+-----+------+---------+----+----------+----+----+------+
+			|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+------+---------+----+----------+----+----+------+
+			| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+			| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+			| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+			| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+			| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+			| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+			| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+			| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+			+-----+------+---------+----+----------+----+----+------+
+
+
+			scala> spark.sql("select * from emp0821").show
+			org.apache.spark.sql.AnalysisException: Table or view not found: emp0821; line 1 pos 14
+			  at org.apache.spark.sql.catalyst.analysis.package$AnalysisErrorAt.failAnalysis(package.scala:42)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.org$apache$spark$sql$catalyst$analysis$Analyzer$ResolveRelations$$lookupTableFromCatalog(Analyzer.scala:459)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$$anonfun$apply$8.applyOrElse(Analyzer.scala:478)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$$anonfun$apply$8.applyOrElse(Analyzer.scala:463)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+			  at org.apache.spark.sql.catalyst.trees.CurrentOrigin$.withOrigin(TreeNode.scala:70)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan.resolveOperators(LogicalPlan.scala:60)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$1.apply(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$1.apply(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$5.apply(TreeNode.scala:331)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode.mapProductIterator(TreeNode.scala:188)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode.transformChildren(TreeNode.scala:329)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan.resolveOperators(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.apply(Analyzer.scala:463)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.apply(Analyzer.scala:453)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:85)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:82)
+			  at scala.collection.LinearSeqOptimized$class.foldLeft(LinearSeqOptimized.scala:124)
+			  at scala.collection.immutable.List.foldLeft(List.scala:84)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:82)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:74)
+			  at scala.collection.immutable.List.foreach(List.scala:381)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor.execute(RuleExecutor.scala:74)
+			  at org.apache.spark.sql.execution.QueryExecution.analyzed$lzycompute(QueryExecution.scala:64)
+			  at org.apache.spark.sql.execution.QueryExecution.analyzed(QueryExecution.scala:62)
+			  at org.apache.spark.sql.execution.QueryExecution.assertAnalyzed(QueryExecution.scala:50)
+			  at org.apache.spark.sql.Dataset$.ofRows(Dataset.scala:63)
+			  at org.apache.spark.sql.SparkSession.sql(SparkSession.scala:592)
+			  ... 48 elided
+
+			scala> spark.sql("select * from global_temp.emp0821").show
+			+-----+------+---------+----+----------+----+----+------+
+			|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+------+---------+----+----------+----+----+------+
+			| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+			| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+			| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+			| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+			| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+			| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+			| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+			| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+			+-----+------+---------+----+----------+----+----+------+
+			
+			scala> spark.newSession.sql("select * from global_temp.emp0821").show
+			+-----+------+---------+----+----------+----+----+------+
+			|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+			+-----+------+---------+----+----------+----+----+------+
+			| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+			| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+			| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+			| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+			| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+			| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+			| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+			| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+			| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+			| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+			| 7876| ADAMS|    CLERK|7788| 1987/5/23|1100|   0|    20|
+			| 7900| JAMES|    CLERK|7698| 1981/12/3| 950|   0|    30|
+			| 7902|  FORD|  ANALYST|7566| 1981/12/3|3000|   0|    20|
+			| 7934|MILLER|    CLERK|7782| 1982/1/23|1300|   0|    10|
+			+-----+------+---------+----+----------+----+----+------+
+
+
+			scala> spark.newSession.sql("select * from emp08212").show
+			org.apache.spark.sql.AnalysisException: Table or view not found: emp08212; line 1 pos 14
+			  at org.apache.spark.sql.catalyst.analysis.package$AnalysisErrorAt.failAnalysis(package.scala:42)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.org$apache$spark$sql$catalyst$analysis$Analyzer$ResolveRelations$$lookupTableFromCatalog(Analyzer.scala:459)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$$anonfun$apply$8.applyOrElse(Analyzer.scala:478)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$$anonfun$apply$8.applyOrElse(Analyzer.scala:463)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$resolveOperators$1.apply(LogicalPlan.scala:61)
+			  at org.apache.spark.sql.catalyst.trees.CurrentOrigin$.withOrigin(TreeNode.scala:70)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan.resolveOperators(LogicalPlan.scala:60)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$1.apply(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan$$anonfun$1.apply(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode$$anonfun$5.apply(TreeNode.scala:331)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode.mapProductIterator(TreeNode.scala:188)
+			  at org.apache.spark.sql.catalyst.trees.TreeNode.transformChildren(TreeNode.scala:329)
+			  at org.apache.spark.sql.catalyst.plans.logical.LogicalPlan.resolveOperators(LogicalPlan.scala:58)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.apply(Analyzer.scala:463)
+			  at org.apache.spark.sql.catalyst.analysis.Analyzer$ResolveRelations$.apply(Analyzer.scala:453)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:85)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1$$anonfun$apply$1.apply(RuleExecutor.scala:82)
+			  at scala.collection.LinearSeqOptimized$class.foldLeft(LinearSeqOptimized.scala:124)
+			  at scala.collection.immutable.List.foldLeft(List.scala:84)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:82)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor$$anonfun$execute$1.apply(RuleExecutor.scala:74)
+			  at scala.collection.immutable.List.foreach(List.scala:381)
+			  at org.apache.spark.sql.catalyst.rules.RuleExecutor.execute(RuleExecutor.scala:74)
+			  at org.apache.spark.sql.execution.QueryExecution.analyzed$lzycompute(QueryExecution.scala:64)
+			  at org.apache.spark.sql.execution.QueryExecution.analyzed(QueryExecution.scala:62)
+			  at org.apache.spark.sql.execution.QueryExecution.assertAnalyzed(QueryExecution.scala:50)
+			  at org.apache.spark.sql.Dataset$.ofRows(Dataset.scala:63)
+			  at org.apache.spark.sql.SparkSession.sql(SparkSession.scala:592)
+			  ... 48 elided
+
+二、使用数据源
+	在Spark SQL中，可以使用各种各样的数据源来操作。
+	
+	1、使用 load 函数、 save 函数
+		
+		load 函数是加载数据，save 是存储。
+		
+		注意：使用 load 或者 save函数时，默认的数据源是 parquet文件。列式存储文件。
+		
+		scala> val userDF = spark.read.load("/usr/local/tmp_files/users.parquet")
+		userDF: org.apache.spark.sql.DataFrame = [name: string, favorite_color: string ... 1 more field]
+
+		scala> userDF.printSchema
+		root
+		 |-- name: string (nullable = true)
+		 |-- favorite_color: string (nullable = true)
+		 |-- favorite_numbers: array (nullable = true)
+		 |    |-- element: integer (containsNull = true)
+
+
+		scala> userDF.show
+		+------+--------------+----------------+
+		|  name|favorite_color|favorite_numbers|
+		+------+--------------+----------------+
+		|Alyssa|          null|  [3, 9, 15, 20]|
+		|   Ben|           red|              []|
+		+------+--------------+----------------+
+			
+		
+		scala> userDF.select("name","favorite_color").write.save("/usr/local/tmp_files/parquet")
+
+		scala> val testResult = spark.read.load("/usr/local/tmp_files/parquet/part-00000-77d38cbb-ec43-439a-94e2-9a0382035552.snappy.parquet")
+		testResult: org.apache.spark.sql.DataFrame = [name: string, favorite_color: string]
+
+		scala> testResult.show
+		+------+--------------+
+		|  name|favorite_color|
+		+------+--------------+
+		|Alyssa|          null|
+		|   Ben|           red|
+		+------+--------------+
+
+
+		scala> val testResult = spark.read.load("/usr/local/tmp_files/parquet")
+		testResult: org.apache.spark.sql.DataFrame = [name: string, favorite_color: string]
+
+		scala> testResult.show
+		+------+--------------+
+		|  name|favorite_color|
+		+------+--------------+
+		|Alyssa|          null|
+		|   Ben|           red|
+		+------+--------------+
+		
+		scala> val testResult = spark.read.load("/usr/local/tmp_files/emp.json")
+		19/08/21 22:41:25 WARN TaskSetManager: Lost task 0.0 in stage 109.0 (TID 1650, 192.168.109.133, executor 0): java.io.IOException: Could not read footer: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+			at org.apache.parquet.hadoop.ParquetFileReader.readAllFootersInParallel(ParquetFileReader.java:248)
+			at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:606)
+			at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:595)
+			at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+			at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+			at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:38)
+			at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:323)
+			at org.apache.spark.rdd.RDD.iterator(RDD.scala:287)
+			at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:87)
+			at org.apache.spark.scheduler.Task.run(Task.scala:99)
+			at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:282)
+			at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+			at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+			at java.lang.Thread.run(Thread.java:748)
+		Caused by: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+			at org.apache.parquet.hadoop.ParquetFileReader.readFooter(ParquetFileReader.java:423)
+			at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:238)
+			at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:234)
+			at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+			... 3 more
+
+		19/08/21 22:41:25 ERROR TaskSetManager: Task 0 in stage 109.0 failed 4 times; aborting job
+		org.apache.spark.SparkException: Job aborted due to stage failure: Task 0 in stage 109.0 failed 4 times, most recent failure: Lost task 0.3 in stage 109.0 (TID 1653, 192.168.109.133, executor 0): java.io.IOException: Could not read footer: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+			at org.apache.parquet.hadoop.ParquetFileReader.readAllFootersInParallel(ParquetFileReader.java:248)
+			at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:606)
+			at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:595)
+			at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+			at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+			at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:38)
+			at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:323)
+			at org.apache.spark.rdd.RDD.iterator(RDD.scala:287)
+			at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:87)
+			at org.apache.spark.scheduler.Task.run(Task.scala:99)
+			at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:282)
+			at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+			at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+			at java.lang.Thread.run(Thread.java:748)
+		Caused by: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+			at org.apache.parquet.hadoop.ParquetFileReader.readFooter(ParquetFileReader.java:423)
+			at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:238)
+			at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:234)
+			at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+			... 3 more
+
+		Driver stacktrace:
+		  at org.apache.spark.scheduler.DAGScheduler.org$apache$spark$scheduler$DAGScheduler$$failJobAndIndependentStages(DAGScheduler.scala:1435)
+		  at org.apache.spark.scheduler.DAGScheduler$$anonfun$abortStage$1.apply(DAGScheduler.scala:1423)
+		  at org.apache.spark.scheduler.DAGScheduler$$anonfun$abortStage$1.apply(DAGScheduler.scala:1422)
+		  at scala.collection.mutable.ResizableArray$class.foreach(ResizableArray.scala:59)
+		  at scala.collection.mutable.ArrayBuffer.foreach(ArrayBuffer.scala:48)
+		  at org.apache.spark.scheduler.DAGScheduler.abortStage(DAGScheduler.scala:1422)
+		  at org.apache.spark.scheduler.DAGScheduler$$anonfun$handleTaskSetFailed$1.apply(DAGScheduler.scala:802)
+		  at org.apache.spark.scheduler.DAGScheduler$$anonfun$handleTaskSetFailed$1.apply(DAGScheduler.scala:802)
+		  at scala.Option.foreach(Option.scala:257)
+		  at org.apache.spark.scheduler.DAGScheduler.handleTaskSetFailed(DAGScheduler.scala:802)
+		  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.doOnReceive(DAGScheduler.scala:1650)
+		  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.onReceive(DAGScheduler.scala:1605)
+		  at org.apache.spark.scheduler.DAGSchedulerEventProcessLoop.onReceive(DAGScheduler.scala:1594)
+		  at org.apache.spark.util.EventLoop$$anon$1.run(EventLoop.scala:48)
+		  at org.apache.spark.scheduler.DAGScheduler.runJob(DAGScheduler.scala:628)
+		  at org.apache.spark.SparkContext.runJob(SparkContext.scala:1918)
+		  at org.apache.spark.SparkContext.runJob(SparkContext.scala:1931)
+		  at org.apache.spark.SparkContext.runJob(SparkContext.scala:1944)
+		  at org.apache.spark.SparkContext.runJob(SparkContext.scala:1958)
+		  at org.apache.spark.rdd.RDD$$anonfun$collect$1.apply(RDD.scala:935)
+		  at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)
+		  at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:112)
+		  at org.apache.spark.rdd.RDD.withScope(RDD.scala:362)
+		  at org.apache.spark.rdd.RDD.collect(RDD.scala:934)
+		  at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$.mergeSchemasInParallel(ParquetFileFormat.scala:631)
+		  at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat.inferSchema(ParquetFileFormat.scala:235)
+		  at org.apache.spark.sql.execution.datasources.DataSource$$anonfun$7.apply(DataSource.scala:184)
+		  at org.apache.spark.sql.execution.datasources.DataSource$$anonfun$7.apply(DataSource.scala:184)
+		  at scala.Option.orElse(Option.scala:289)
+		  at org.apache.spark.sql.execution.datasources.DataSource.org$apache$spark$sql$execution$datasources$DataSource$$getOrInferFileFormatSchema(DataSource.scala:183)
+		  at org.apache.spark.sql.execution.datasources.DataSource.resolveRelation(DataSource.scala:387)
+		  at org.apache.spark.sql.DataFrameReader.load(DataFrameReader.scala:152)
+		  at org.apache.spark.sql.DataFrameReader.load(DataFrameReader.scala:135)
+		  ... 48 elided
+		Caused by: java.io.IOException: Could not read footer: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+		  at org.apache.parquet.hadoop.ParquetFileReader.readAllFootersInParallel(ParquetFileReader.java:248)
+		  at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:606)
+		  at org.apache.spark.sql.execution.datasources.parquet.ParquetFileFormat$$anonfun$19.apply(ParquetFileFormat.scala:595)
+		  at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+		  at org.apache.spark.rdd.RDD$$anonfun$mapPartitions$1$$anonfun$apply$23.apply(RDD.scala:796)
+		  at org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:38)
+		  at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:323)
+		  at org.apache.spark.rdd.RDD.iterator(RDD.scala:287)
+		  at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:87)
+		  at org.apache.spark.scheduler.Task.run(Task.scala:99)
+		  at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:282)
+		  at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+		  at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:624)
+		  at java.lang.Thread.run(Thread.java:748)
+		Caused by: java.lang.RuntimeException: file:/usr/local/tmp_files/emp.json is not a Parquet file. expected magic number at tail [80, 65, 82, 49] but found [58, 49, 48, 125]
+		  at org.apache.parquet.hadoop.ParquetFileReader.readFooter(ParquetFileReader.java:423)
+		  at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:238)
+		  at org.apache.parquet.hadoop.ParquetFileReader$2.call(ParquetFileReader.java:234)
+		  at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+		  ... 3 more
+
+		scala> val testResult = spark.read.format("json").load("/usr/local/tmp_files/emp.json")
+		testResult: org.apache.spark.sql.DataFrame = [comm: string, deptno: bigint ... 6 more fields]
+
+		scala> val testResult = spark.read.json("/usr/local/tmp_files/emp.json")
+		testResult: org.apache.spark.sql.DataFrame = [comm: string, deptno: bigint ... 6 more fields]
+
+		scala> testResult.show
+		+----+------+-----+------+----------+---------+----+----+
+		|comm|deptno|empno| ename|  hiredate|      job| mgr| sal|
+		+----+------+-----+------+----------+---------+----+----+
+		|    |    20| 7369| SMITH|1980/12/17|    CLERK|7902| 800|
+		| 300|    30| 7499| ALLEN| 1981/2/20| SALESMAN|7698|1600|
+		| 500|    30| 7521|  WARD| 1981/2/22| SALESMAN|7698|1250|
+		|    |    20| 7566| JONES|  1981/4/2|  MANAGER|7839|2975|
+		|1400|    30| 7654|MARTIN| 1981/9/28| SALESMAN|7698|1250|
+		|    |    30| 7698| BLAKE|  1981/5/1|  MANAGER|7839|2850|
+		|    |    10| 7782| CLARK|  1981/6/9|  MANAGER|7839|2450|
+		|    |    20| 7788| SCOTT| 1987/4/19|  ANALYST|7566|3000|
+		|    |    10| 7839|  KING|1981/11/17|PRESIDENT|    |5000|
+		|   0|    30| 7844|TURNER|  1981/9/8| SALESMAN|7698|1500|
+		|    |    20| 7876| ADAMS| 1987/5/23|    CLERK|7788|1100|
+		|    |    30| 7900| JAMES| 1981/12/3|    CLERK|7698| 950|
+		|    |    20| 7902|  FORD| 1981/12/3|  ANALYST|7566|3000|
+		|    |    10| 7934|MILLER| 1982/1/23|    CLERK|7782|1300|
+		+----+------+-----+------+----------+---------+----+----+
+		
+		使用save函数时，可以指定存储模式：追加、覆盖。
+		scala> userDF.select("name").write.save("/usr/local/tmp_files/parquet")
+		org.apache.spark.sql.AnalysisException: path file:/usr/local/tmp_files/parquet already exists.;
+		  at org.apache.spark.sql.execution.datasources.InsertIntoHadoopFsRelationCommand.run(InsertIntoHadoopFsRelationCommand.scala:80)
+		  at org.apache.spark.sql.execution.command.ExecutedCommandExec.sideEffectResult$lzycompute(commands.scala:58)
+		  at org.apache.spark.sql.execution.command.ExecutedCommandExec.sideEffectResult(commands.scala:56)
+		  at org.apache.spark.sql.execution.command.ExecutedCommandExec.doExecute(commands.scala:74)
+		  at org.apache.spark.sql.execution.SparkPlan$$anonfun$execute$1.apply(SparkPlan.scala:114)
+		  at org.apache.spark.sql.execution.SparkPlan$$anonfun$execute$1.apply(SparkPlan.scala:114)
+		  at org.apache.spark.sql.execution.SparkPlan$$anonfun$executeQuery$1.apply(SparkPlan.scala:135)
+		  at org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)
+		  at org.apache.spark.sql.execution.SparkPlan.executeQuery(SparkPlan.scala:132)
+		  at org.apache.spark.sql.execution.SparkPlan.execute(SparkPlan.scala:113)
+		  at org.apache.spark.sql.execution.QueryExecution.toRdd$lzycompute(QueryExecution.scala:87)
+		  at org.apache.spark.sql.execution.QueryExecution.toRdd(QueryExecution.scala:87)
+		  at org.apache.spark.sql.execution.datasources.DataSource.write(DataSource.scala:492)
+		  at org.apache.spark.sql.DataFrameWriter.save(DataFrameWriter.scala:215)
+		  at org.apache.spark.sql.DataFrameWriter.save(DataFrameWriter.scala:198)
+		  ... 48 elided
+
+		scala> userDF.select("name").write.mode("overwrite").save("/usr/local/tmp_files/parquet")
+		
+		将结果保存成表：
+		scala> userDF.select("name").write.mode("overwrite").save("/usr/local/tmp_files/parquet")
+
+		scala> userDF.select("name").write.saveAsTable("table0821")
+
+		scala> spark.sql("select * from table0821").show
+		+------+
+		|  name|
+		+------+
+		|Alyssa|
+		|   Ben|
+		+------+
+		
+		关闭spark shell 后 ，重启 
+		scala> userDF.show
+		<console>:24: error: not found: value userDF
+			   userDF.show
+			   ^
+
+		scala> spark.sql("select * from table0821").show
+		+------+
+		|  name|
+		+------+
+		|Alyssa|
+		|   Ben|
+		+------+
+
+
+		scala> spark.sql("select * from table0821").show
+		
+		依然可以读到数据，原因：
+		在 启动 spark shell 的目录下 有  spark-warehouse 文件夹，调用saveAsTable时，会把数据保存到这个文件夹下。
+		
+		从其他路径启动spark shell ，不能读取到数据。
+		
+	2、Parquet文件：列式存储文件。是Spark SQL 默认的数据源。
+		
+		理解：就是普通的文件。
+		
+		1、把其他文件转换成Parquet文件
+			
+			非常简单：调用save函数，默认就是格式。
+			思路：将数据读进来，再写出去。就是Parquet文件。
+			
+			emp.json
+			
+			scala> val empDF = spark.read.json("/usr/local/tmp_files/emp.json")
+			empDF: org.apache.spark.sql.DataFrame = [comm: string, deptno: bigint ... 6 more fields]
+
+			scala> empDF.show
+			+----+------+-----+------+----------+---------+----+----+
+			|comm|deptno|empno| ename|  hiredate|      job| mgr| sal|
+			+----+------+-----+------+----------+---------+----+----+
+			|    |    20| 7369| SMITH|1980/12/17|    CLERK|7902| 800|
+			| 300|    30| 7499| ALLEN| 1981/2/20| SALESMAN|7698|1600|
+			| 500|    30| 7521|  WARD| 1981/2/22| SALESMAN|7698|1250|
+			|    |    20| 7566| JONES|  1981/4/2|  MANAGER|7839|2975|
+			|1400|    30| 7654|MARTIN| 1981/9/28| SALESMAN|7698|1250|
+			|    |    30| 7698| BLAKE|  1981/5/1|  MANAGER|7839|2850|
+			|    |    10| 7782| CLARK|  1981/6/9|  MANAGER|7839|2450|
+			|    |    20| 7788| SCOTT| 1987/4/19|  ANALYST|7566|3000|
+			|    |    10| 7839|  KING|1981/11/17|PRESIDENT|    |5000|
+			|   0|    30| 7844|TURNER|  1981/9/8| SALESMAN|7698|1500|
+			|    |    20| 7876| ADAMS| 1987/5/23|    CLERK|7788|1100|
+			|    |    30| 7900| JAMES| 1981/12/3|    CLERK|7698| 950|
+			|    |    20| 7902|  FORD| 1981/12/3|  ANALYST|7566|3000|
+			|    |    10| 7934|MILLER| 1982/1/23|    CLERK|7782|1300|
+			+----+------+-----+------+----------+---------+----+----+
+
+
+			scala> empDF.write.mode("overwrite").save("/usr/local/tmp_files/parquet")
+
+			scala> empDF.write.mode("overwrite").parquet("/usr/local/tmp_files/parquet")
+			
+			scala> val emp1 = spark.read.parquet("/usr/local/tmp_files/parquet")
+			emp1: org.apache.spark.sql.DataFrame = [comm: string, deptno: bigint ... 6 more fields]
+
+			scala> emp1.createOrReplaceTempView("emp1")
+
+			scala> spark
+			res4: org.apache.spark.sql.SparkSession = org.apache.spark.sql.SparkSession@71e6bac0
+
+			scala> spark.sql("select * from emp1")
+			res5: org.apache.spark.sql.DataFrame = [comm: string, deptno: bigint ... 6 more fields]
+
+			scala> spark.sql("select * from emp1").show
+			+----+------+-----+------+----------+---------+----+----+
+			|comm|deptno|empno| ename|  hiredate|      job| mgr| sal|
+			+----+------+-----+------+----------+---------+----+----+
+			|    |    20| 7369| SMITH|1980/12/17|    CLERK|7902| 800|
+			| 300|    30| 7499| ALLEN| 1981/2/20| SALESMAN|7698|1600|
+			| 500|    30| 7521|  WARD| 1981/2/22| SALESMAN|7698|1250|
+			|    |    20| 7566| JONES|  1981/4/2|  MANAGER|7839|2975|
+			|1400|    30| 7654|MARTIN| 1981/9/28| SALESMAN|7698|1250|
+			|    |    30| 7698| BLAKE|  1981/5/1|  MANAGER|7839|2850|
+			|    |    10| 7782| CLARK|  1981/6/9|  MANAGER|7839|2450|
+			|    |    20| 7788| SCOTT| 1987/4/19|  ANALYST|7566|3000|
+			|    |    10| 7839|  KING|1981/11/17|PRESIDENT|    |5000|
+			|   0|    30| 7844|TURNER|  1981/9/8| SALESMAN|7698|1500|
+			|    |    20| 7876| ADAMS| 1987/5/23|    CLERK|7788|1100|
+			|    |    30| 7900| JAMES| 1981/12/3|    CLERK|7698| 950|
+			|    |    20| 7902|  FORD| 1981/12/3|  ANALYST|7566|3000|
+			|    |    10| 7934|MILLER| 1982/1/23|    CLERK|7782|1300|
+			+----+------+-----+------+----------+---------+----+----+
+			
+			
+		2、支持Schema合并
+			
+			项目开始，表结构简单，Schema简单
+			随着项目越来越大，表越来越复杂。逐步向表中增加新的列。
+			
+			scala> val df1 = sc.makeRDD(1 to 5).map(i => (i,i*2)).toDF("single","double")
+			df1: org.apache.spark.sql.DataFrame = [single: int, double: int]
+			
+			single double 是表结构
+
+			scala> df1.show
+			+------+------+
+			|single|double|
+			+------+------+
+			|     1|     2|
+			|     2|     4|
+			|     3|     6|
+			|     4|     8|
+			|     5|    10|
+			+------+------+
+			
+			scala> val df2 = sc.makeRDD(6 to 10).map(i=>(i,i*3)).toDF("single","triple")
+			df2: org.apache.spark.sql.DataFrame = [single: int, triple: int]
+
+			scala> df2.show
+			+------+------+
+			|single|triple|
+			+------+------+
+			|     6|    18|
+			|     7|    21|
+			|     8|    24|
+			|     9|    27|
+			|    10|    30|
+			+------+------+
+
+
+			scala> df2.write.parquet("/usr/local/tmp_files/test_table/key=2")
+			
+			合并Schema
+			scala> val df3 = spark.read.option("mergeSchema",true).parquet("/usr/local/tmp_files/test_table")
+			df3: org.apache.spark.sql.DataFrame = [single: int, double: int ... 2 more fields]
+
+			scala> df3.printSchema
+			root
+			 |-- single: integer (nullable = true)
+			 |-- double: integer (nullable = true)
+			 |-- triple: integer (nullable = true)
+			 |-- key: integer (nullable = true)
+
+
+			scala> df3.show
+			+------+------+------+---+
+			|single|double|triple|key|
+			+------+------+------+---+
+			|     8|  null|    24|  2|
+			|     9|  null|    27|  2|
+			|    10|  null|    30|  2|
+			|     3|     6|  null|  1|
+			|     4|     8|  null|  1|
+			|     5|    10|  null|  1|
+			|     6|  null|    18|  2|
+			|     7|  null|    21|  2|
+			|     1|     2|  null|  1|
+			|     2|     4|  null|  1|
+			+------+------+------+---+
+			
+			scala> val df1 = sc.makeRDD(1 to 5).map(i => (i,i*2)).toDF("single","double")
+			df1: org.apache.spark.sql.DataFrame = [single: int, double: int]
+
+			scala> df1.write.parquet("/usr/local/tmp_files/test_table/hehe=1")
+
+			scala> val df2 = sc.makeRDD(6 to 10).map(i=>(i,i*3)).toDF("single","triple")
+			df2: org.apache.spark.sql.DataFrame = [single: int, triple: int]
+
+			scala> df2.write.parquet("/usr/local/tmp_files/test_table/hehe=2")
+
+			scala> val df3 = spark.read.option("mergeSchema",true).parquet("/usr/local/tmp_files/test_table")
+			df3: org.apache.spark.sql.DataFrame = [single: int, double: int ... 2 more fields]
+
+			scala> df3.printSchema
+			root
+			 |-- single: integer (nullable = true)
+			 |-- double: integer (nullable = true)
+			 |-- triple: integer (nullable = true)
+			 |-- hehe: integer (nullable = true)
+			 
+			
+			使用不同名字：
+			scala> df1.write.parquet("/usr/local/tmp_files/test_table/hehe=1")
+                                                                                
+			scala> df2.write.parquet("/usr/local/tmp_files/test_table/key=2")
+
+			scala> val df3 = spark.read.option("mergeSchema",true).parquet("/usr/local/tmp_files/test_table")
+			java.lang.AssertionError: assertion failed: Conflicting partition column names detected:
+
+				Partition column name list #0: key
+				Partition column name list #1: hehe
+
+			For partitioned table directories, data files should only live in leaf directories.
+			And directories at the same level should have the same partition column name.
+			Please check the following directories for unexpected files or inconsistent partition column names:
+
+				file:/usr/local/tmp_files/test_table/key=2
+				file:/usr/local/tmp_files/test_table/hehe=1
+			  at scala.Predef$.assert(Predef.scala:170)
+			  at org.apache.spark.sql.execution.datasources.PartitioningUtils$.resolvePartitions(PartitioningUtils.scala:320)
+			  at org.apache.spark.sql.execution.datasources.PartitioningUtils$.parsePartitions(PartitioningUtils.scala:131)
+			  at org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex.inferPartitioning(PartitioningAwareFileIndex.scala:148)
+			  at org.apache.spark.sql.execution.datasources.InMemoryFileIndex.partitionSpec(InMemoryFileIndex.scala:54)
+			  at org.apache.spark.sql.execution.datasources.PartitioningAwareFileIndex.partitionSchema(PartitioningAwareFileIndex.scala:54)
+			  at org.apache.spark.sql.execution.datasources.DataSource.org$apache$spark$sql$execution$datasources$DataSource$$getOrInferFileFormatSchema(DataSource.scala:138)
+			  at org.apache.spark.sql.execution.datasources.DataSource.resolveRelation(DataSource.scala:387)
+			  at org.apache.spark.sql.DataFrameReader.load(DataFrameReader.scala:152)
+			  at org.apache.spark.sql.DataFrameReader.parquet(DataFrameReader.scala:441)
+			  at org.apache.spark.sql.DataFrameReader.parquet(DataFrameReader.scala:425)
+			  ... 48 elided
+			  
+			mv key\=2/ hehe\=2/
+			
+			scala> val df3 = spark.read.option("mergeSchema",true).parquet("/usr/local/tmp_files/test_table")
+			df3: org.apache.spark.sql.DataFrame = [single: int, double: int ... 2 more fields]
+
+			scala> df3.show
+			+------+------+------+----+
+			|single|double|triple|hehe|
+			+------+------+------+----+
+			|     8|  null|    24|   2|
+			|     9|  null|    27|   2|
+			|    10|  null|    30|   2|
+			|     3|     6|  null|   1|
+			|     4|     8|  null|   1|
+			|     5|    10|  null|   1|
+			|     6|  null|    18|   2|
+			|     7|  null|    21|   2|
+			|     1|     2|  null|   1|
+			|     2|     4|  null|   1|
+			+------+------+------+----+
+			
+	3、Json文件
+		
+		scala> val peopleDF = spark.read.json("/usr/local/tmp_files/people.json")
+		peopleDF: org.apache.spark.sql.DataFrame = [age: bigint, name: string]
+
+		scala> peopleDF.show
+		+----+-------+
+		| age|   name|
+		+----+-------+
+		|null|Michael|
+		|  30|   Andy|
+		|  19| Justin|
+		+----+-------+
+
+
+		scala> peopleDF.createOrReplaceTempView("people")
+
+		scala> spark.sql("select name from people where age=19").show
+		+------+
+		|  name|
+		+------+
+		|Justin|
+		+------+
+		
+		Spark SQL 支持统一的访问接口，对于不同的数据源，只要读取进来，生成DataFrame后，使用SQL语句操作即可。
+		
+	4、JDBC
+		
+		通过JDBC操作关系型数据库。mysql中的数据。
+		./spark-shell --master spark://node3:7077 --jars /usr/local/tmp_files/mysql-connecto8.0.11.jar --driver-class-path /usr/local/tmp_files/mysql-connector-java-8.0.11.jar 
+		
+		val mysqlDF = spark.read.format("jdbc")
+						.option("url","jdbc:mysql://192.168.109.1:3306/company?serverTimezone=UTC&characterEncoding=utf-8")
+						.option("user","root")
+						.option("password","123456")
+						.option("driver","com.mysql.jdbc.Driver")
+						.option("dbtable","emp").load
+		
+		val mysqlDF = spark.read.format("jdbc").option("url","jdbc:mysql://192.168.109.1:3306/company?serverTimezone=UTC&characterEncoding=utf-8").option("user","root").option("password","123456").option("driver","com.mysql.jdbc.Driver").option("dbtable","emp").load	
+		
+		定义Propertities类
+		import java.util.Properties
+		val mysqlProps = new Properties()
+		mysqlProps.setProperty("user","root")
+		mysqlProps.setProperty("password","123456")
+		mysqlProps.setProperty("driver","com.mysql.jdbc.Driver")
+		val mysqlDF1 = spark.read.jdbc("jdbc:mysql://192.168.109.1:3306/company?serverTimezone=UTC&characterEncoding=utf-8","emp",mysqlProps)
+			
+	5、Hive
+		
+		可以把Hive 中的数据，读取到Spark SQL 中，使用Spark SQL 来处理。
+		
+		hive：数据仓库
+		
+		比较常见的模式。
+		
+		（*）Spark SQL 完全兼容hive
+		（*）需要进行配置
+			到 SPARK_HOME/conf 目录下
+			Hive：hive-site.xml
+			Hadoop:core-site.xml  hdfs-site.xml
+		（*）启动spark shell时候，指定Mysql 的驱动。hive的元信息保存在mysql中。
+		
+		需要启动的组件：
+		hdfs yarn hive-server（如果server与clinet分离） spark集群 spark-shell
+		./spark-shell --master spark://node3:7077 --jars /usr/local/tmp_files/mysql-connector-java-8.0.11.jar 
+		
+		
+		启动hive server端命令：
+		./hive --service metastore
+		
+		server端配置：
+<configuration> 
+  <property> 
+    <name>hive.metastore.warehouse.dir</name>  
+    <value>/user/yibo/hive/warehouse</value> 
+  </property>  
+  <property> 
+    <name>javax.jdo.option.ConnectionURL</name>  
+    <value>jdbc:mysql://192.168.109.1:3306/hive?serverTimezone=UTC</value> 
+  </property>  
+  <property> 
+    <name>javax.jdo.option.ConnectionDriverName</name>  
+    <value>com.mysql.jdbc.Driver</value> 
+  </property>  
+  <property> 
+    <name>javax.jdo.option.ConnectionUserName</name>  
+    <value>root</value> 
+  </property>  
+  <property> 
+    <name>javax.jdo.option.ConnectionPassword</name>  
+    <value>123456</value> 
+  </property>  
+  <property> 
+    <name>hive.querylog.location</name>  
+    <value>/data/hive/iotmp</value> 
+  </property>  
+  <property> 
+    <name>hive.server2.logging.operation.log.location</name>  
+    <value>/data/hive/operation_logs</value> 
+  </property>  
+  <property> 
+    <name>datanucleus.readOnlyDatastore</name>  
+    <value>false</value> 
+  </property>  
+  <property> 
+    <name>datanucleus.fixedDatastore</name>  
+    <value>false</value> 
+  </property>  
+  <property> 
+    <name>datanucleus.autoCreateSchema</name>  
+    <value>true</value> 
+  </property>  
+  <property> 
+    <name>datanucleus.autoCreateTables</name>  
+    <value>true</value> 
+  </property>  
+  <property> 
+    <name>datanucleus.autoCreateColumns</name>  
+    <value>true</value> 
+  </property> 
+<property>
+    <name>datanucleus.schema.autoCreateAll</name>
+    <value>true</value>
+  </property>
+</configuration>
+
+		hive client端配置：
+<configuration> 
+  <property> 
+    <name>hive.metastore.warehouse.dir</name>  
+    <value>/user/yibo/hive/warehouse</value> 
+  </property>  
+  <property> 
+    <name>hive.metastore.local</name>  
+    <value>false</value> 
+  </property>  
+  <property> 
+    <name>hive.metastore.uris</name>  
+    <value>thrift://192.168.109.132:9083</value> 
+  </property> 
+</configuration>
+		
+		scala> spark.sql("show tables").show
+		+--------+-----------+-----------+
+		|database|  tableName|isTemporary|
+		+--------+-----------+-----------+
+		| default|emp_default|      false|
+		+--------+-----------+-----------+
+
+
+		scala> spark.sql("select * from company.emp limit 10").show
+		+-----+------+---------+----+----------+----+----+------+
+		|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+		+-----+------+---------+----+----------+----+----+------+
+		| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+		| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+		| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+		| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+		| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+		| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+		| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+		| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+		| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+		| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+		+-----+------+---------+----+----------+----+----+------+
+
+
+		scala> spark.sql("create table company.emp_0823( empno Int, ename String, job String, mgr String, hiredate String, sal Int, comm String, deptno Int ) row format delimited fields terminated by ','")
+		res2: org.apache.spark.sql.DataFrame = []
+
+		scala> spark.sql("load data local inpath '/usr/local/tmp_files/emp.csv' overwrite into table company.emp_0823")
+		19/08/23 05:14:50 ERROR KeyProviderCache: Could not find uri with key [dfs.encryption.key.provider.uri] to create a keyProvider !!
+		res3: org.apache.spark.sql.DataFrame = []
+
+		scala> spark.sql("load data local inpath '/usr/local/tmp_files/emp.csv' into table company.emp_0823")
+		res4: org.apache.spark.sql.DataFrame = []
+
+		scala> spark.sql("select * from company.emp_0823 limit 10").show
+		+-----+------+---------+----+----------+----+----+------+
+		|empno| ename|      job| mgr|  hiredate| sal|comm|deptno|
+		+-----+------+---------+----+----------+----+----+------+
+		| 7369| SMITH|    CLERK|7902|1980/12/17| 800|   0|    20|
+		| 7499| ALLEN| SALESMAN|7698| 1981/2/20|1600| 300|    30|
+		| 7521|  WARD| SALESMAN|7698| 1981/2/22|1250| 500|    30|
+		| 7566| JONES|  MANAGER|7839|  1981/4/2|2975|   0|    20|
+		| 7654|MARTIN| SALESMAN|7698| 1981/9/28|1250|1400|    30|
+		| 7698| BLAKE|  MANAGER|7839|  1981/5/1|2850|   0|    30|
+		| 7782| CLARK|  MANAGER|7839|  1981/6/9|2450|   0|    10|
+		| 7788| SCOTT|  ANALYST|7566| 1987/4/19|3000|   0|    20|
+		| 7839|  KING|PRESIDENT|7839|1981/11/17|5000|   0|    10|
+		| 7844|TURNER| SALESMAN|7698|  1981/9/8|1500|   0|    30|
+		+-----+------+---------+----+----------+----+----+------+
+		
+三、在IDE中开发Spark SQL
+	
+	和 Spark Core 类似
+	
+	./spark-submit --master spark://node3:7077 --jars /usr/local/tmp_files/mysql-connector-java-8.0.11.jar --driver-class-path /usr/local/tmp_files/mysql-connector-java-8.0.11.jar --class day0823.SparkSQLDemo4 /usr/local/tmp_files/Demo0823.jar 
+	
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+		
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
